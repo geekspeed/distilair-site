@@ -1,0 +1,2327 @@
+<?php
+/**
+ * Created by PhpStorm.
+ * User: zwg2
+ * Date: 11/10/14
+ * Time: 1:34 PM
+ *
+ *
+ * Accesses data in the two CSV files (determined by whether the given date is a weekday or weekend)
+ * to assign a flightId to each flight on each day for users to be able to search flights
+ */
+
+
+//set start date for schedule
+private $startDate = "2014-11-15 00:00:00";
+
+//create date object from start date with standard mySQL format
+private $formatDateTime = "Y-m-d H:i:s";
+private $date = DateTimeImmutable::createFromFormat($formatDateTime, $startDate);
+
+//set initial seats available on each plane to 20
+private $initialTotalSeatsOnPlane = 20;
+
+//open the "weekDayCsv.csv" to have ready for use during loops
+if(($weekDayPointer = fopen("weekDayCsv.csv", "r")) === false){
+	throw(new RuntimeException("Unable to Open 'weekDay CSV export-Table 1.csv'"));
+}
+
+
+//open the "weekEndCsv.csv" to have ready for use during loops
+if(($weekEndPointer = fopen("weekEndCsv.csv", "r")) === false){
+	throw(new RuntimeException("Unable to Open 'weekEnd CSV export-Table 1.csv'"));
+}
+
+
+//fixme: add full doc-bloc with parameters etc.
+/**
+ * increment by 1 day, run through schedule files in a loop, build flights from seed data CSVs
+ * @param resource $mysqli pointer to mySQL connection, by reference
+ * @param $weekDayPointer
+ * @param $weekEndPointer
+ * @param $date
+ * @param $initialTotalSeatsOnPlane
+ * @throws mysqli_sql_exception when mySQL related errors occur
+ **/
+function	buildFlights (&$mysqli, $weekDayPointer, $weekEndPointer, $date, $initialTotalSeatsOnPlane) {
+
+	//first, create query template
+	$query = "INSERT INTO flight (origin, destination, duration, departureDateTime, arrivalDateTime, flightNumber, price, totalSeatsOnPlane)
+				VALUES(?, ?, ?, ?, ?, ?, ?,?)";
+	$statement = $mysqli->prepare($query);
+	if($statement === false) {
+		throw(new mysqli_sql_exception("Unable to prepare statement"));
+	}
+
+	//run loop for 2 years worth of data, checking which schedule to pull from on each day
+	for($i = 0; $i < 730; $i++) { //counter number is wrong 845
+
+		//fixme use DateTime to reformat this as an  //won't this mean i have to recreate the object as a string?  ie less elegant?  why do this way?
+		//get day of week for the date in the current loop
+		$dayOfWeek = date("N",$date->getTimestamp());
+
+		//"if date is weekday, then do following:"
+		if($dayOfWeek < 6) {
+
+
+			//go through each row of the relevant schedule and build all flights for this date
+			while(($output = fgetcsv($weekDayPointer, 0, ",")) !== false) {
+
+				//$output[0, 1, 5, 9, 13] come in as strings and will be used as such for origin/destination/flight numbers
+
+				//$output[2-4] and [7-8] and [11-12] come in as a string but have to be an interval of hours to be used in calcs
+				//except for $output[2], all of these also have to be added to the date of current loop to create a DATETIME
+
+				//first, explode the string into an array to be able to turn it into a DateInterval object.  Start with the
+				//defualt case of the first flight which is always populated.  Then do same for Flight 2 and 3 when they exist.
+
+
+				/*
+
+				$explode2 = explode(":", $output[2]);
+				$explode3 = explode(":", $output[3]);
+				$explode4 = explode(":", $output[4]);
+
+
+				//second, use the exploded strings to create the DateInteval.  Duration will remain a DateInterval.
+				$duration = DateInterval::createFromDateString("$explode2[0] hour + $explode2[1] minutes");
+				$departureTime1 = DateInterval::createFromDateString("$explode3[0] hour + $explode3[1] minutes");
+				$arrivalTime1 = DateInterval::createFromDateString("$explode4[0] hour + $explode4[1] minutes");
+
+				//third, add the relevant intervals to the current date in the loop to make a DATETIME object for each flight
+				$dateTimeDep1 = $date->add($departureTime1);
+				$dateTimeArr1 = $date->add($arrivalTime1);
+
+				//FIXME: price formatting
+				//fourth, $output[6,10,14] come in as a float and need precision set to two decimal places for eventual conversion to dollar format
+				//		$basePriceFlight1 = (int) $output[6];
+				//		$basePriceFlight2 = (int) $output[10];
+				//		$basePriceFlight3 = (int) $output[14];
+
+				// First, explode the duration string into an array to be able to turn it into a DateInterval object to be used in calcs
+				$explode2 = explode(":", $output[2]);
+
+				//second, use the exploded string to create the DateInteval.  Duration will remain a DateInterval.
+				$duration = DateInterval::createFromDateString("$explode2[0] hour + $explode2[1] minutes");
+
+				*/
+
+
+				// set index base counter for do while loop to 3 for first flight arrival field
+				$a = 3;
+
+				do 	{
+					//set second counter for ease
+					$b = $a+1;
+
+					//CSV $output[0, 1, 5, 9, 13] come in as strings and will be used as such for origin/destination/flight numbers
+
+					//$output[2-4] and [7-8] and [11-12] come in as a string but have to be an interval of hours to be used in calcs
+					//except for $output[2], all of these also have to be added to the date of current outer loop to create a DATETIME,
+					//then re-formated once again as a string to be re-inserted to mySQL
+
+					// First, explode the string into an array to be able to turn it into a DateInterval object.
+					// Start with the defualt case of the first flight which is always populated.  Then do same for Flight 2 and 3 when they exist.
+
+						//fixme to be more elegant
+					$explodeA = explode(":", $output[$a]);
+					$explodeB = explode(":", $output[$b]);
+
+
+					//second, use the exploded strings to create the DateInteval.
+					$departureTime = DateInterval::createFromDateString("$explodeA[0] hour + $explodeA[1] minutes");
+					$arrivalTime = DateInterval::createFromDateString("$explodeB[0] hour + $explodeB[1] minutes");
+
+					//third, add the relevant intervals to the current date in the loop to make a DATETIME object for each flight
+					$dateTimeDep = $date->add($departureTime);
+					$dateTimeArr = $date->add($arrivalTime);
+
+					//convert all DateTime and DateInteval Objects to strings for re-insertion //fixme: don't we need them in DateInterval format for future math calculations?
+
+
+					//array to hold all results//fixme: how do we build to an array before inserting
+
+					$wasClean = $statement->bind_param("ssssssdi", $output[0], $output[1], $output[2], $dateTimeDep,
+						$dateTimeArr, $output[$a+2], $output[$a+3], $initialTotalSeatsOnPlane);
+
+
+					if($wasClean === false) {
+						throw(new mysqli_sql_exception("Unable to bind parameters"));
+					}
+					if($statement->execute() === false) {
+						throw(new mysqli_sql_exception("Unable to execute mySQL statement"));
+					}
+
+					//increment counter to index of the next flight departure
+					$a = $a + 4;
+
+				} while (empty($output[$a]) !== false || $output[$a] !== false ); //FIXME: ask whether need both
+
+
+
+				/*
+
+					//fixme: above changes compared to below include: do all the ifs as a do while loop; change datetime objects to a string to insert
+					//check for flight 2 on seed row and insert if exists:
+						if(empty($output[7]) === false) {
+							//repeat steps from default case for Flight 2
+							$explode7 = explode(":", $output[7]);
+							$explode8 = explode(":", $output[8]);
+							$departureTime2 = DateInterval::createFromDateString("$explode7[0] hour + $explode7[1] minutes");
+							$arrivalTime2 = DateInterval::createFromDateString("$explode8[0] hour + $explode8[1] minutes");
+							$dateTimeDep2 = $date->add($departureTime2);
+							$dateTimeArr2 = $date->add($arrivalTime2);
+
+							$wasClean = $statement->bind_param("ssssssdi", $output[0], $output[1], $duration, $dateTimeDep2,
+								$dateTimeArr2, $output[9], $output[10], $initialTotalSeatsOnPlane);
+
+							if($wasClean === false) {
+								throw(new mysqli_sql_exception("Unable to bind parameters"));
+							}
+							if($statement->execute() === false) {
+								throw(new mysqli_sql_exception("Unable to execute mySQL statement"));
+							}
+
+
+							//check for flight 3 on seed row and insert if it exists:
+							if(empty($output[11]) === false) {
+								//repeat steps from default case for Flight 3
+								$explode11 = explode(":", $output[11]);
+								$explode12 = explode(":", $output[12]);
+								$departureTime3 = DateInterval::createFromDateString("$explode11[0] hour + $explode11[1] minutes");
+								$arrivalTime3 = DateInterval::createFromDateString("$explode12[0] hour + $explode12[1] minutes");
+								$dateTimeDep3 = $date->add($departureTime3);
+								$dateTimeArr3 = $date->add($arrivalTime3);
+
+								$wasClean = $statement->bind_param("ssssssdi", $output[0], $output[1], $duration, $dateTimeDep3,
+																				$dateTimeArr3, $output[13], $output[14], $initialTotalSeatsOnPlane);
+								if($wasClean === false) {
+									throw(new mysqli_sql_exception("Unable to bind parameters"));
+								}
+								if($statement->execute() === false) {
+									throw(new mysqli_sql_exception("Unable to execute mySQL statement"));
+								}
+
+							}
+						}
+				*/
+			}
+
+			//repeat of code above with $weekEndPointer
+		} else if($dayOfWeek === 6 || $dayOfWeek === 7) {
+			//fixme: repeat code above, change file name to $weekEndPointer
+
+		} else {
+			throw(new Exception("DayOfWeek returned an unmatched value"));
+		}
+
+		//add 1 day to immutable $date object
+		$loopByDay = DateInterval::createFromDateString("1 day");
+		$date=$date->add ($loopByDay);
+
+	}
+
+	fclose($weekDayPointer);
+	fclose($weekEndPointer);
+}
+
+//end function
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+
+/*//
+//$num = count($output);
+
+
+	//$date->add(new DateInterval('P1D'));
+
+	// create second query template to insert
+	$query2 = "INSERT INTO flight (flightId, origin, destination, duration, departureTime, arrivalTime,
+																flightNumber, price, totalSeatsOnPlane) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)";
+	$statement2 = $mysqli->prepare($query2);
+	if($statement2 === false) {
+		throw(new mysqli_sql_exception("Unable to prepare statement"));
+	}
+
+	// bind the member variables to the place holders in the template
+	$wasClean2 = $statement2->bind_param("issssssii", $flightId, $row["origin"], $row["destination"], $row["duration"],
+		$row["departureTime"], $row["arrivalDateTime"], $row["flightNumber"],
+		$row["price"], $totalSeatsOnPlane);
+
+	if($wasClean2 === false) {
+		throw(new mysqli_sql_exception("Unable to bind parameters"));
+	}
+
+	// execute the statement
+	if($statement2->execute() === false) {
+		throw(new mysqli_sql_exception("Unable to execute mySQL statement"));
+	}
+
+
+
+	// create second query template to insert
+				$query2 = "INSERT INTO flight (flightId, origin, destination, duration, departureTime, arrivalTime,
+																flightNumber, price, totalSeatsOnPlane) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)";
+				$statement2 = $mysqli->prepare($query2);
+				if($statement2 === false) {
+					throw(new mysqli_sql_exception("Unable to prepare statement"));
+				}
+
+				// bind the member variables to the place holders in the template
+				$wasClean2 = $statement2->bind_param("issssssii", $flightId, $row["origin"], $row["destination"], $row["duration"],
+					$row["departureTime"], $row["arrivalDateTime"], $row["flightNumber"],
+					$row["price"], $totalSeatsOnPlane);
+
+				if($wasClean2 === false) {
+					throw(new mysqli_sql_exception("Unable to bind parameters"));
+				}
+
+				// execute the statement
+				if($statement2->execute() === false) {
+					throw(new mysqli_sql_exception("Unable to execute mySQL statement"));
+				}
+
+
+
+
+
+
+
+
+
+
+	// convert the associative array to a Flight
+			if($row !== null) {
+				try {
+					$flight = new Flight ($flightId, $row["origin"], $row["destination"], $row["duration"], $row["departureTime"],
+						$row["arrivalDateTime"], $row["flightNumber"],$row["price"], $totalSeatsOnPlane);
+				} catch(Exception $exception) {
+					// if the row couldn't be converted, rethrow it
+					throw(new mysqli_sql_exception("Unable to convert row to Flight", 0, $exception));
+				}
+
+				// if we got here, the Flight is good - return it
+				return ($flight);
+			} else {
+				// 404 User not found - return null instead
+				return (null);
+			}
+		}
+
+
+			insert flightId, $date, everything on row $i of tableWeekDaySchedule;
+
+				$flightId++;
+
+			}
+	}
+	else for ($i=0,$i< count(tableWeekEndSchedule), $i++) {
+
+		insert flightId, $date, everything on row $i of tableWeekEndSchedule;
+
+				$flightId++;
+		}
+
+	$date++;
+
+}
+
+
+	//CREATE QUERY TEMPLATE
+	$query = "SELECT origin, destination, duration, departureTime, arrivalTime, flightNum, price
+					FROM weekdaySchedule WHERE weekdayScheduleId = ? ";
+	$statement = $mysqli->prepare($query);
+	if($statement === false) {
+		throw(new mysqli_sql_exception("Unable to prepare statement"));
+	}
+	$i = 0;
+	do {
+
+
+		//bind the profileId to the place holder in the template
+		$wasClean = $statement->bind_param("i", $i);
+		if($wasClean === false) {
+			throw(new mysqli_sql_exception("Unable to bind parameters"));
+		}
+
+		//execute statement
+		if($statement->execute() === false) {
+			throw(new mysqli_sql_exception("Unable to execute mySQL statement"));
+		}
+
+		//get result from the SELECT query
+		$result = $statement->get_result();
+		if($result === false) {
+			throw(new mysqli_sql_exception("Unable to get result set"));
+		}
+
+		$row = $result->fetch_assoc();
+
+		if(empty($row) === false) {
+			INSERT INTO flight(flightId, origin, destination, etc) VALUES(?, ? , ?)
+
+			bind_params("iss", null, $row['origin'], $row['destination'], $row['duration'] ['departureTime']);
+		}
+		$i++;
+	} while ($row !== null);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	$format = "Y-m-d";
+	$date = DateTime::createFromFormat($format, $startDate);
+
+	for($i=0; $i<730; $i++) {
+
+
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		ini_set('date.timezone', 'Europe/Lisbon');
+
+		$cal = new IntlGregorianCalendar(NULL, 'en_US');
+		$cal->set(2013, 6, 7); // a Sunday
+
+		var_dump($cal->isWeekend()); // true
+
+		$date = 2014-12-01;//php has a function which will tell you the day of week
+		if ($date = weekday) {
+
+			for($i = 0, $i < count(tableWeekDaySchedule), $i++) {
+
+				insert flightId, $date, everything on row $i of tableWeekDaySchedule;
+
+				$flightId++;
+
+			}
+		}
+		else for ($i=0,$i< count(tableWeekEndSchedule), $i++) {
+
+				insert flightId, $date, everything on row $i of tableWeekEndSchedule;
+
+				$flightId++;
+		}
+
+		$date++;
+
+	}
+
+
+
+
+
+}
+
+
+
+*/
+
+
+
+
+
+
+?>
+
+
+
+
+
+//pseudo code for testFlight
+
+
+
+/*
+
+
+// NESTED LOOPS:
+	// LOOP 1: for number of origins, assign each in the array to $userOrigin variable	}
+}
+
+/*
+	Loop 2: same for destinations
+		but i think a do/while to skip first origin/origin overlap, then....
+		after that, if  next.destination in loop is same as this.origin, skip destination
+		(i.e. add two instead of 1 to array index counter)
+
+	Loop 3: USER_NUMBER_PASSENGERS = 15, <30, +10 (verifies null results if
+		call static user search method to get result in form of 3D array
+		if USER_NUMBER_PASSENGERS < totalSeatsOnPlane of 20, verify results not null or throw exception
+		else verify results ARE null for over 20 passengers and return;
+
+	Loop 4: for loop to iterate through dimension 1 result array "allPaths[]"
+		for (i=0, allPaths[i] !== null, i++) {
+			count size of 2nd dimension array allPaths[i]
+			assert allPaths[i][0]["origin"] =  this.origin of loop 1
+			assert allPaths[i][size of allPaths[i]]["destination"] = this.destination of loop 2
+			assert allPaths[i][size of allPaths[i]]["arrivalDateTime"] - allPaths[i][0]["departureDateTime"] <= range variable
+		}
+
+	Loop 5A: for loop to compare arrival/departure times in results and verify no overlaps
+		for (a=0, allPaths[i][a+1] !== null, a++) {
+			allPaths[i][a+1]["departureDateTime"] - allPaths[i][a]["arrivalDateTime] >= minLayover;
+		}
+	Loop 5B (sibling not child of 5A): Assert identical each flightId's info with a select from the database
+		for (a=0, allPaths[i][a] !== null, a++) {
+			SELECT FROM flight (all fields) WHERE flightId = allPaths[i][a];
+			row = result-> fetch_assoc();
+
+			for (b=0, allPaths[i][a][b] !== null, b++) {
+				Assert allPaths[i][a][b] identical to row[b]
+
+//fixme: need it to be 3D array instead of 2D array of objects to check each field?
+for($g=0; $thisArrayOfPaths[$d][$f][$g] !== null; $g++) {
+
+
+/*
+// create query template for SELECT
+$querySelect = "SELECT * FROM flight WHERE flightId = ?";
+$statement = $mysqli->prepare($querySelect);
+if($statement === false) {
+throw(new mysqli_sql_exception("Unable to prepare statement"));
+}
+
+// bind the flightId to the place holder in the template
+$wasClean = $statement->bind_param("i", );
+if($wasClean === false) {
+throw(new mysqli_sql_exception("Unable to bind parameters"));
+}
+
+// execute the statement
+if($statement->execute() === false) {
+throw(new mysqli_sql_exception("Unable to execute mySQL statement"));
+}
+
+// get result from the SELECT query *pounds fists*
+$result = $statement->get_result();
+if($result === false) {
+throw(new mysqli_sql_exception("Unable to get result set"));
+}
+
+// since this field is unique to this flightId, this will only return 0 or 1 results. So...
+// 1) if there's a result, we can use it to calc
+// 2) if there's no result, we can just return null
+$row = $result->fetch_assoc(); // fetch_assoc() returns a row as an associative array
+*/
+
+
+}
+		}
+
+	//repeat whole thing for a different day, like a weekend instead of weekday
+
+	/
+
+	// declare necessary variables to send to function for weekday
+	$USER_ORIGIN = $ORIGIN;
+	$USER_DESTINATION = $DESTINATION;
+	$USER_FLY_DATE_START = "2014-12-04 00:00:00";
+	$USER_FLY_DATE_END = "2014-12-05 00:00:00";
+
+	do {
+
+		$USER_NUMBER_PASSENGERS = 1;
+
+		//fixme concrete mysqli?
+		// call the user search function and var dump the results for visual verification
+		$staticPaths = Flight::getRoutesByUserInput($this->mysqli, $USER_ORIGIN, $USER_DESTINATION, $USER_FLY_DATE_START,
+			$USER_FLY_DATE_END, $USER_NUMBER_PASSENGERS);
+		//var_dump($staticPaths);
+
+		$USER_NUMBER_PASSENGERS = $USER_NUMBER_PASSENGERS + 5;
+
+
+	} while ($USER_NUMBER_PASSENGERS < 30);
+
+
+
+	// declare necessary new variables to send to function for weekend return flight
+	$USER_RETURN_DATE_START = "2014-12-07 00:00:00";
+	$USER_RETURN_DATE_END = "2014-12-08 00:00:00";
+
+	do {
+
+		$USER_NUMBER_PASSENGERS2 = 1;
+
+		//fixme concrete mysqli?
+		// call the user search function with reversed origin/destination and var dump the results for visual verification
+		$staticPaths = Flight::getRoutesByUserInput($this->mysqli, $USER_DESTINATION, $USER_ORIGIN, $USER_RETURN_DATE_START,
+																	$USER_RETURN_DATE_END, $USER_NUMBER_PASSENGERS2);
+		//var_dump($staticPaths);
+
+		$USER_NUMBER_PASSENGERS2 = $USER_NUMBER_PASSENGERS2 + 5;
+
+
+	} while ($USER_NUMBER_PASSENGERS2 < 30);
+
+}
+*/
+
+
+
+// discarded code for flight user search:
+
+/* old code: fixme delete eventually
+				// bind the user inputs to the place holder in the template to make a 2 dimensional array (array of arrays
+				// of all related info for each flight ID in a path)
+				$wasClean = $statement2->bind_param("s", $row["path"]);
+
+				if($wasClean === false) {
+					throw(new mysqli_sql_exception("Unable to bind parameters"));
+				}
+
+				// execute the statement
+				if($statement2->execute() === false) {
+					echo "<p>line 1000 of flight, dump of statement2 error for eachflightpathobject before throwing error</p>";
+					var_dump($statement2->error);
+					throw(new mysqli_sql_exception("Unable to execute mySQL statement"));
+				}
+
+				echo "<p>line 1004 of flight dump of statement2 before getting eachflightpathobject result</p>";
+				var_dump($statement2);
+
+
+				// get result from the SELECT query *pounds fists*
+				// this represents the two dimensional array (flight ids with all their associated data)
+				$eachFlightPathObject = $statement2->get_result();
+				if($eachFlightPathObject === false) {
+					throw(new mysqli_sql_exception("Unable to get result set"));
+				}
+
+				echo "<p>line 1016 of flight dump of eachFlightPathObject</p>";
+				var_dump($eachFlightPathObject);
+
+
+				// fixme: isn't this just a result object tho?  Have to convert it to an array of arrays? think we need to fetch assoc again for this new result object, but how are multidimensional associative arrays indexed in this case... use array of objects
+				// fixme: so if we have an array of flight objects, instead of an array of flightIDs, each of which is an array of info with that flight, we can still access those flight specific variables we need to do necessary math and add to the array?  How do we reference those variables within each flight object?
+				// fixme: So final array would be array of objects + 2 variables of duration and price.
+				$eachFlightPath = $eachFlightPathObject->fetch_assoc();
+				echo "<p>line 1024 of flight dump of eachFlightPath after fetchassoc for eachflightpathobject</p>";
+				var_dump($eachFlightPathObject);
+*/
+
+
+/* old code: fixme delete eventually
+
+		// this will return as many results as there are flights and flight combos with same origin + departure + date.
+		//	1) if there's no result, we can just return null
+		// 2) if there's a result, we can make it into flight objects by using the flight path string
+		// fetch_assoc() returns row as associative arr until row is null
+
+		// create query to take results from stored procedure and get all related info for each flight returned
+		$query = "SELECT flightId, origin, destination, duration, departureDateTime, arrivalDateTime, flightNumber, price,
+ 					totalSeatsOnPlane FROM flight WHERE flightId IN (?)";
+
+		$statement2 = $mysqli->prepare($query);
+		if($statement2 === false) {
+			throw(new mysqli_sql_exception("Unable to prepare statement"));
+		}
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<input type="hidden" name="hiddenRadio" value="<?php echo $hiddenRadio?>">
+<div id="outboundTabs" class="bs-example bs-example-tabs" role="tabpanel">
+	<ul id="mySearchOutboundTabs" class="nav nav-tabs" role="tablist">
+
+
+		<li role="presentation" class="active">
+			<a href="#2daysBeforeOutbound" id="2daysBeforeOutbound-tab" role="tab" data-toggle="tab" aria-controls="originalOutboundDate" aria-expanded="true">php echo of 2 days before entered date</a>
+		</li>
+
+		<li role="presentation" class="active">
+			<a href="#dayBeforeOutbound" id="dayBeforeOutbound-tab" role="tab" data-toggle="tab" aria-controls="originalOutboundDate" aria-expanded="true">php echo of day before entered date</a>
+		</li>
+
+		<li role="presentation" class="active">
+			<a href="#originalOutboundDate" id="originalOutboundDate-tab" role="tab" data-toggle="tab" aria-controls="originalOutboundDate" aria-expanded="true">php echo of entered date</a>
+		</li>
+
+		<li role="presentation" class="active">
+			<a href="#dayAfterOutbound" id="dayAfterOutbound-tab" role="tab" data-toggle="tab" aria-controls="dayAfterOutbound" aria-expanded="true">php echo of day after entered date</a>
+		</li>
+
+		<li role="presentation" class="active">
+			<a href="#2daysAfterOutbound" id="2daysAfterOutbound-tab" role="tab" data-toggle="tab" aria-controls="2daysAfterOutbound" aria-expanded="true">php echo of 2 days after entered date</a>
+		</li>
+
+	</ul>
+
+	<div id="myTabContent" class="tab-content">
+
+
+		<div role="tabpanel" class="tab-pane fade" id="2daysBeforeOutbound" aria-labelledby="2daysBefore-tab">
+		</div>
+
+		<div role="tabpanel" class="tab-pane fade" id="dayBeforeOutbound" aria-labelledby="dayBefore-tab">
+		</div>
+
+		<div role="tabpanel" class="tab-pane fade in active" id="originalOutboundDate" aria-labelledby="dayOf-tab">
+
+			<?php
+			// execute outbound search and build results table within outbound tabs
+			try {
+				//	$savedName  = $_POST["csrfName"//];
+				//	$savedToken = $_POST["csrfToken"];//
+				//
+				//
+				//	if(verifyCsrf($_POST["csrfName"], $_POST["csrfToken"]) === false)// {
+				//		throw(new RuntimeException("Make sure cookies are enabled.")//);
+				//	}
+				// clean inputs, adjust dates to needed format for outbound flight
+				$userOrigin1 = filter_input(INPUT_POST, "origin", FILTER_SANITIZE_STRING);
+				$userDestination1 = filter_input(INPUT_POST, "destination", FILTER_SANITIZE_STRING);
+				$userFlyDateStartIncoming1 = filter_input(INPUT_POST, "departDate", FILTER_SANITIZE_STRING);
+				$userFlyDateStartIncoming2 = $userFlyDateStartIncoming1 . " 07:00:00";
+				$userFlyDateStartObj1 = DateTime::createFromFormat("m/d/Y H:i:s", $userFlyDateStartIncoming2, new DateTimeZone('UTC'));
+				$userFlyDateStart1 = $userFlyDateStartObj1->format("Y-m-d H:i:s");
+				// get outbound results
+				$outputTableOutbound = completeSearch($mysqli, $userOrigin1, $userDestination1,
+					$userFlyDateStart1, "priceWithOutboundPath");
+				// set up modular string pieces for building output echo here and with later return path if exists
+				$tableStringStart = "<form name='selectFlights' class='navbar-form navbar-left' id='searchResults' action='selected_results_processor.php' method='POST'>
+									<table id='outboundSelection' class='table table-striped table-responsive table-hover table-bordered' width=100%>\n
+										<thead><tr><th colspan='9'>";
+				$tableStringMid = "<table id='returnSelection' class='table table-striped table-responsive table-hover table-bordered'>\n
+								<thead><tr><th colspan='9'>";
+				$tableStringEnd = "</table>\n</form>";
+				//<button type='submit' class='btn btn-default'>BOOK NOW!</button> --  </body> save for later fixme
+				echo $tableStringStart . "SELECT DEPARTURE FLIGHT</th></tr>" . $outputTableOutbound . $tableStringEnd;
+			}catch (Exception $e){
+				// $_SESSION[$savedName] = $savedToken;
+				echo "<div class='alert alert-danger' role='alert'>
+									".$e->getMessage()."
+							</div>";
+			}
+			?>
+		</div>
+
+		<div role="tabpanel" class="tab-pane fade" id="dayAfterOutbound" aria-labelledby="dayAfter-tab">
+		</div>
+
+		<div role="tabpanel" class="tab-pane fade" id="2daysAfterOutbound" aria-labelledby="2daysAfter-tab">
+		</div>
+	</div>
+</div>
+
+
+<!-- ************************************RETURN TABS******************************************-->
+<section>
+
+	</div><div id = "returnTabs" class="bs-example bs-example-tabs" role="tabpanel">
+		<ul id="myReturnSearchTabs" class="nav nav-tabs" role="tablist">
+
+
+			<li role="presentation" class="active">
+				<a href="#2daysBeforeInbound" id="2daysBeforeInbound-tab" role="tab" data-toggle="tab" aria-controls="originalInboundDate" aria-expanded="true">php echo of 2 days before entered date</a>
+			</li>
+
+			<li role="presentation" class="active">
+				<a href="#dayBeforeInbound" id="dayBeforeInbound-tab" role="tab" data-toggle="tab" aria-controls="originalInboundDate" aria-expanded="true">php echo of day before entered date</a>
+			</li>
+
+			<li role="presentation" class="active">
+				<a href="#originalInboundDate" id="originalInboundDate-tab" role="tab" data-toggle="tab" aria-controls="originalInboundDate" aria-expanded="true">php echo of entered date</a>
+			</li>
+
+			<li role="presentation" class="active">
+				<a href="#dayA fterInbound" id="dayAfterInbound-tab" role="tab" data-toggle="tab" aria-controls="dayAfterInbound" aria-expanded="true">php echo of day after entered date</a>
+			</li>
+
+			<li role="presentation" class="active">
+				<a href="#2daysAfterInbound" id="2daysAfterInbound-tab" role="tab" data-toggle="tab" aria-controls="2daysAfterInbound" aria-expanded="true">php echo of 2 days after entered date</a>
+			</li>
+
+		</ul>
+
+		<div id="myTabContent" class="tab-content">
+
+
+			<div role="tabpanel" class="tab-pane fade" id="2daysBeforeInbound" aria-labelledby="2daysBefore-tab">
+			</div>
+
+			<div role="tabpanel" class="tab-pane fade" id="dayBeforeInbound" aria-labelledby="dayBefore-tab">
+			</div>
+
+			<div role="tabpanel" class="tab-pane fade in active" id="originalInboundDate" aria-labelledby="dayOf-tab">
+
+				<?php
+				// execute return search and build results table within return tabs if round trip selected
+				try {
+					//	$savedName  = $_POST["csrfName"//];
+					//	$savedToken = $_POST["csrfToken"];//
+					//
+					//
+					//	if(verifyCsrf($_POST["csrfName"], $_POST["csrfToken"]) === false)// {
+					//		throw(new RuntimeException("Make sure cookies are enabled.")//);
+					//	}
+					// execute return search flight with same process: clean inputs, adjust dates to needed format for return trip, switch origin and destination
+					$userOrigin2 = filter_input(INPUT_POST, "destination", FILTER_SANITIZE_STRING);
+					$userDestination2 = filter_input(INPUT_POST, "origin", FILTER_SANITIZE_STRING);
+					$userFlyDateStartIncoming3 = filter_input(INPUT_POST, "returnDate", FILTER_SANITIZE_STRING);
+					$userFlyDateStartIncoming4 = $userFlyDateStartIncoming3 . " 07:00:00";
+					$userFlyDateStartObj2 = DateTime::createFromFormat("m/d/Y H:i:s", $userFlyDateStartIncoming4, new DateTimeZone('UTC'));
+					$userFlyDateStart2 = $userFlyDateStartObj2->format("Y-m-d H:i:s");
+					//fixme check to see why is breaking when a second search is executed
+					// execute inbound flight search
+					$outputTableInbound = completeSearch($mysqli, $userOrigin2, $userDestination2,
+						$userFlyDateStart2, "priceWithReturnPath");
+					// build and echo output string return flight
+					echo $tableStringMid . "SELECT RETURN FLIGHT</th></tr>" . $outputTableInbound . $tableStringEnd;
+				}catch (Exception $e){
+					// $_SESSION[$savedName] = $savedToken;
+					echo "<div class='alert alert-danger' role='alert'>
+									".$e->getMessage()."
+							</div>";
+				}
+				?>
+			</div>
+
+			<div role="tabpanel" class="tab-pane fade" id="dayAfterInbound" aria-labelledby="dayAfter-tab">
+			</div>
+
+			<div role="tabpanel" class="tab-pane fade" id="2daysAfterInbound" aria-labelledby="2daysAfter-tab">
+			</div>
+		</div>
+
+	</div>
+
+</section>
+<button type='submit' form="selectFlights" class='btn btn-default'>BOOK NOW!</button>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<?php
+/**
+ * fixme doc bloc
+ * Created by PhpStorm.
+ * User: zwg2
+ * Date: 12/3/14
+ * Time: 10:12 AM
+ *
+ * this processor takes search inputs from user, executes an outbound search and, if specified, a return trip search,
+ * and displays results to the user in table form.
+ */
+session_start();
+require("/var/www/html/przm.php");
+require("../class/flight.php");
+require("../../lib/csrf.php");
+$mysqli = MysqliConfiguration::getMysqli();
+
+
+// hard code of stub starts here, until we get stub working************
+require_once("../class/profile.php");
+if(isset($_SESSION['userId'])) {
+	$profile = Profile::getProfileByUserId($mysqli, $_SESSION['userId']);
+	$fullName = ucfirst($profile->__get('userFirstName')) . ' ' . ucfirst($profile->__get('userLastName'));
+	$userName = <<<EOF
+		<a><span
+			class="glyphicon glyphicon-user"></span> Welcome, $fullName  </a>
+
+EOF;
+	$status = <<< EOF
+			<a href="forms/signOut.php">Sign Out</a>
+
+EOF;
+
+}
+else{
+	$userName = "";
+	$status = "";
+}
+
+//	$savedName  = $_POST["csrfName"//];
+//	$savedToken = $_POST["csrfToken"];//
+//
+//
+//	if(verifyCsrf($_POST["csrfName"], $_POST["csrfToken"]) === false)// {
+//		throw(new RuntimeException("Make sure cookies are enabled.")//);
+//	}
+
+
+/**
+ * sets up all other needed variables that are same for outbound and return searches, then calls the method with all inputs
+ * @param 	resource $mysqli pointer to temp mySQL connection, by reference
+ * @param 	string $userOrigin with 3 letter origin city
+ * @param 	string $userDestination with 3 letter destination city
+ * @param 	string $userFlyDateStart of 7AM on user's chosen fly date
+ * @param 	string $returnOrNo of A or B for return trip or one-way.
+ * @return 	mixed $outputTable html table of search results
+ **/
+function completeSearch (&$mysqli, $userOrigin, $userDestination,
+								 $userFlyDateStart, $returnOrNo)
+{
+
+	// can make this a user input in future to pre-filter results to a user-given duration amount in hours.
+	$userFlyDateRange = 24;
+
+	// can make this a user input in future to pre-filter results to a user-given number of records.  If all records are needed, can use empty($thisArrayOfPaths[$i]) === false; in the for loop below instead.
+//$numberToShow = 15;
+//$i<$numberToShow
+
+	$numberOfPassengersRequested = filter_input(INPUT_POST, "numberOfPassengers", FILTER_SANITIZE_NUMBER_INT);
+	$minLayover = filter_input(INPUT_POST, "minLayover", FILTER_SANITIZE_NUMBER_INT);
+
+
+
+	// call method
+	$thisArrayOfPaths = Flight::getRoutesByUserInput($mysqli, $userOrigin, $userDestination,
+		$userFlyDateStart, $userFlyDateRange,
+		$numberOfPassengersRequested, $minLayover);
+
+	// set up head of table of search results
+	$outputTableHead = "<tr>
+											<th style='text-align:center'>Remaining<br/>Tickets</th>
+											<th style='text-align:center'>Flight #</th>
+											<th style='text-align:center'>Depart</th>
+											<th style='text-align:center'>Arrive</th>
+											<th style='text-align:center'>Stops</th>
+											<th style='text-align:center'>Layover</th>
+											<th style='text-align:center'>Travel Time</th>
+											<th style='text-align:center'>Price</th>
+											<th style='text-align:center'>SELECT</th>
+									</tr></thead>\n";
+
+	// set up variable for rows then fill in with results by looping through each path in the array of paths
+	$outputTableRows = "";
+	for($i = 0; empty($thisArrayOfPaths[$i]) === false; $i++) {
+
+		//get index for last flight
+		$indexOfLastFlightInPath = count($thisArrayOfPaths[$i]) - 3;
+
+		// origin timezone conversions here
+		if($userOrigin === "ABQ" || $userOrigin === "DEN") {
+			$originTimeZoneString = "PT";
+			$departureFlight1 = $thisArrayOfPaths[$i][0]->getDepartureDateTime()->setTimezone(new
+																			DateTimeZone("America/Denver"))->format("H:i");
+		} else if($userOrigin === "SEA" || $userOrigin === "LAX") {
+			$originTimeZoneString = "MT";
+			$departureFlight1 = $thisArrayOfPaths[$i][0]->getDepartureDateTime()->setTimezone(new
+																			DateTimeZone("America/Los_Angeles"))->format("H:i");
+		} else if($userOrigin === "DFW" || $userOrigin === "ORD" || $userOrigin === "MDW") {
+			$originTimeZoneString = "CT";
+			$departureFlight1 = $thisArrayOfPaths[$i][0]->getDepartureDateTime()->setTimezone(new DateTimeZone("America/Chicago"))->format("H:i");
+		} // else origin is ET
+		else {
+			$originTimeZoneString = "ET";
+			$departureFlight1 = $thisArrayOfPaths[$i][0]->getDepartureDateTime()->setTimezone(new DateTimeZone("America/New_York"))->format("H:i");
+		}
+
+
+		// destination timezone conversions here
+		if($userDestination === "SEA" || $userDestination === "LAX") {
+			$destinationTimeZoneString = "PT";
+			$arrivalFlightLast = $thisArrayOfPaths[$i][$indexOfLastFlightInPath]->getArrivalDateTime()->setTimezone(new DateTimeZone("America/Los_Angeles"))->format("H:i");
+		} else if($userDestination === "ABQ" || $userDestination === "DEN") {
+			$destinationTimeZoneString = "MT";
+			$arrivalFlightLast = $thisArrayOfPaths[$i][$indexOfLastFlightInPath]->getArrivalDateTime()->setTimezone(new DateTimeZone("America/Denver"))->format("H:i");
+		} else if($userDestination === "DFW" || $userDestination === "ORD" || $userDestination === "MDW") {
+			$destinationTimeZoneString = "CT";
+			$arrivalFlightLast = $thisArrayOfPaths[$i][$indexOfLastFlightInPath]->getArrivalDateTime()->setTimezone(new DateTimeZone("America/Chicago"))->format("H:i");
+		} // else destination is ET
+		else {
+			$arrivalFlightLast = "ET";
+			$arrivalFlightLast = $thisArrayOfPaths[$i][$indexOfLastFlightInPath]->getArrivalDateTime()->setTimezone(new DateTimeZone("America/New_York"))->format("H:i");
+		}
+
+//		echo "<p>Destination TIME FOR PATH after timezone: ". $i ." </p>";
+//		var_dump($thisArrayOfPaths[$i][$indexOfLastFlightInPath]->getArrivalDateTime());
+
+		// get total price from results
+		$totalPriceFloat = $thisArrayOfPaths[$i][$indexOfLastFlightInPath+2];
+		$totalPrice = "$" . money_format("%n",$totalPriceFloat);
+
+		// set up arrays for flight number and flightIDs then loop through results to build
+		$flightNumberArray = array();
+		$flightIdArray = array();
+
+		// but first add price to beginning of flightID array for use later in the process of purchasing a ticket
+		$flightIdArray[0] = $totalPriceFloat;
+		$flightIdArray[1] = $numberOfPassengersRequested;
+
+		// and second set up counter
+		$j = 0;
+
+		// and third set up placeholder for total tickets on each plane
+		$totalTicketsLeft = 10000;
+
+		do {
+			$flightNumberArray [$j]= $thisArrayOfPaths[$i][$j]->getFlightNumber();
+			$flightIdArray [$j+2]= $thisArrayOfPaths[$i][$j]->getFlightId();
+
+			// use loop to also capture the lowest TotalSeatsOnPlane of all flights in the Path
+			if($totalTicketsLeft > $thisArrayOfPaths[$i][$j]->getTotalSeatsOnPlane()) {
+				$totalTicketsLeft = $thisArrayOfPaths[$i][$j]->getTotalSeatsOnPlane();
+			}
+			$j++;
+		} while(empty($thisArrayOfPaths[$i][$j + 2]) === false);
+
+		// turn arrays to string with commas
+		$flightNumber = implode(", ", $flightNumberArray);
+		$priceWithFlightIds = implode(", ", $flightIdArray);
+
+//		echo "120 final flightNumber string";
+//		var_dump($flightNumber);
+
+
+//		todo old code delete:
+//		} else {
+//			$flightNumber = $thisArrayOfPaths[$i][0]->getFlightNumber();
+//		}
+//		echo "120 flight#Array";
+//		var_dump(count($flightNumberArray));
+
+//		if(count($flightNumberArray) === 1) {
+//			$flightNumber = $flightNumberArray[0];
+//		} else if(count($flightNumberArray) > 1) {
+			// turn array to string
+//		} else throw (new UnexpectedValueException ("Could not find a flight number"));
+
+
+		// index of last flight also = number of stops to show user
+		if($indexOfLastFlightInPath === 0) {
+			$numberOfStops = "Nonstop";
+		} else {
+			$numberOfStops = $indexOfLastFlightInPath;
+		}
+
+		// get total duration from results array and change it to a string
+		$totalDurationInterval = $thisArrayOfPaths[$i][$indexOfLastFlightInPath + 1];
+//		echo "<p>121 PATH index then DURATION </p>";
+//		var_dump($indexOfLastFlightInPath + 1);
+//		var_dump($totalDurationInterval);
+
+		$travelTime = $totalDurationInterval->format("%H:%I");
+
+		// set up array for layover then loop through results to calc
+		$layoverArray = array();
+		for($k = 0; empty($thisArrayOfPaths[$i][$k + 3]) === false; $k++) {
+			$layoverInterval = $thisArrayOfPaths[$i][$k]->getArrivalDateTime()->
+										diff($thisArrayOfPaths[$i][$k + 1]->getDepartureDateTime());
+//
+//			echo "<p>161 PATH LAYOVER </p>";
+//			var_dump($layoverInterval);
+
+//			$minutes = $layoverInterval->days * 24 * 60;
+//			$minutes += $layoverInterval->h * 60;
+//			$minutes += $layoverInterval->i;
+
+			$layoverArray[$k] = $layoverInterval->format("%H:%I");
+
+//				intval($minutes);
+		}
+
+		// turn layover to string of all layovers in route
+		if($indexOfLastFlightInPath === 0) {
+			$layoverString = "-";
+		} else {
+			$layoverString = implode(", ", $layoverArray);
+		}
+
+
+
+
+		// build outputs into table rows.  Give each select a different value depending on a) outbound or inbound and b) within either, number for path in loop.
+		$outputTableRows = $outputTableRows . "<tr>" .
+			"<td>" . $totalTicketsLeft . "</td>" .
+			"<td>" . $flightNumber . "</td>" .
+			"<td>" . $departureFlight1 . "</td>" .
+			"<td>" . $arrivalFlightLast . "</td>" .
+			"<td text-align: center>" . $numberOfStops . "</td>" .
+			"<td>" . $layoverString . "</td>" .
+			"<td>" . $travelTime . "</td>" .
+			"<td>" . $totalPrice . "</td>" .
+			"<td>
+					<div class='btn-group'>
+						<label class='btn btn-primary active'>
+							<input type='radio' name='" . $returnOrNo . "' id='selectFlight" . $returnOrNo . $i . "' autocomplete='off' value='" . $priceWithFlightIds . "'>
+						</label>
+					</div>
+			</td>" .
+			"</tr>\n";
+	}
+	$outputTable = $outputTableHead . "<tbody>" . $outputTableRows . "</tbody>\n";
+	return $outputTable;
+}
+
+
+
+
+/**
+ * sets up the strings to populate the full search results allowing user to change dates by going to a different tab
+ * @param 	resource $mysqli pointer to temp mySQL connection, by reference
+ * @param 	string $userOrigin with 3 letter origin city
+ * @param 	string $userDestination with 3 letter destination city
+ * @param 	string $userFlyDateStart of 7AM on user's chosen fly date
+ * @param 	string $returnOrNo of A or B for return trip or one-way.
+ * @return 	mixed $outputTable html table of search results
+ **/
+function beginSearch (&$mysqli, $userFlyDateStart1, $userFlyDateStart2)
+{
+
+
+
+
+	// if not return trip, build and echo output string with outbound only
+	if($_POST ["roundTripOrOneWay"] == 0) {
+	} else {
+
+	}
+
+
+}
+$hiddenRadio = $_POST['roundTripOrOneWay'];
+
+
+?>
+
+
+<!DOCTYPE html>
+<html>
+<head lang="en">
+	<meta charset="UTF-8">
+	<title>DistilAir Airlines</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link type="text/css" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.1/css/bootstrap.min.css" rel="stylesheet" />
+<link type="text/css" href="../../css/search_results.css" rel="stylesheet" />
+
+<script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.form/3.51/jquery.form.min.js"></script>
+<script type="text/javascript" src="//ajax.aspnetcdn.com/ajax/jquery.validate/1.12.0/jquery.validate.min.js"></script>
+<script type="text/javascript" src="//ajax.aspnetcdn.com/ajax/jquery.validate/1.12.0/additional-methods.min.js"></script>
+<script type="text/javascript" src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.1/js/bootstrap.min.js"></script>
+
+<script type="text/javascript" src="//cdn.datatables.net/1.10.4/js/jquery.dataTables.min.js"></script>
+<script type="text/javascript" src="//cdn.datatables.net/plug-ins/9dcbecd42ad/integration/bootstrap/3/dataTables.bootstrap.js"></script>
+<script type="text/javascript" src="../../js/search_results.js"></script>
+<style>
+	.tab-container{
+		/*style tabs here*/
+	}
+</style>
+</head>
+<body>
+<header>
+<nav class="navbar navbar-default" role="navigation">
+	<div class="container-fluid">
+		<!-- Brand and toggle get grouped for better mobile display -->
+		<div class="navbar-header">
+			<button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
+				<span class="sr-only">Toggle navigation</span>
+				<span class="icon-bar"></span>
+				<span class="icon-bar"></span>
+				<span class="icon-bar"></span>
+			</button>
+			<a class="navbar-brand" href="clearSession.php"><span class="glyphicon glyphicon-cloud"
+																			  aria-hidden="true"></span> DistilAir Airlines</a>
+		</div>
+
+		<!-- Collect the nav links, forms, and other content for toggling -->
+		<div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+			<ul class="nav navbar-nav">
+				<li></li>
+			</ul>
+
+			<ul class="nav navbar-nav navbar-right">
+
+			<li><a href="#"></a></li>
+			</ul>
+		</div><!-- /.navbar-collapse -->
+	</div><!-- /.container-fluid -->
+	</nav>
+</header>
+<body>
+<input type="hidden" name="hiddenRadio" value="<?php echo $hiddenRadio;?>">
+
+
+
+	<!--************************************OUTBOUND TABS******************************************-->
+<!--
+	<form style='width: 75%;' name='selectOutbound' class='navbar-form navbar-left' id='searchResults' action='selected_results_processor.php' method='POST'>
+-->
+
+<section class="center">
+	<br/>
+	<h2>SELECT DEPARTURE FLIGHT</h2>
+	<hr>
+
+	<div id="outbound" class="tabContainer" role="tabpanel">
+
+	<!-- Nav tabs -->
+	<div class="container-fluid">
+		<ul class="nav nav-tabs nav-justified" role="tablist">
+			<li role="presentation"><a href="#2DB" aria-controls="2DB" role="tab" data-toggle="tab">2DB</a></li>
+			<li role="presentation"><a href="#1DB" aria-controls="1DB" role="tab" data-toggle="tab">1DB</a></li>
+			<li role="presentation" class="active"><a href="#D" aria-controls="D" role="tab"
+																	data-toggle="tab">D</a></li>
+			<li role="presentation"><a href="#1DA" aria-controls="1DA" role="tab"
+												data-toggle="tab">1DA</a></li>
+			<li role="presentation"><a href="#2DA" aria-controls="2DA" role="tab"
+												data-toggle="tab">2DA</a></li>
+		</ul>
+	</div>
+		<div class="tab-content">
+			<div role="tabpanel" class="tab-pane fade in center" id="2DB">
+				<p>Test HTML to show if tabs are working 2DB</p>
+				<!--Insert Function Here-->
+
+			</div>
+			<div role="tabpanel" class="tab-pane fade in center" id="1DB">
+				<!--Insert Function Here-->
+			</div>
+			<div role="tabpanel" class="tab-pane fade in active center" id="D">
+				<br/>
+
+				<?php
+
+				// execute outbound search and build results table within outbound tabs
+				try {
+
+					//test for csrf at the top of the page
+
+					// clean inputs, adjust dates to needed format for outbound flight
+					$userOrigin1 = filter_input(INPUT_POST, "origin", FILTER_SANITIZE_STRING);
+					$userDestination1 = filter_input(INPUT_POST, "destination", FILTER_SANITIZE_STRING);
+
+
+					$userFlyDateStartIncoming1 = filter_input(INPUT_POST, "departDate", FILTER_SANITIZE_STRING);
+					$userFlyDateStartIncoming2 = $userFlyDateStartIncoming1 . " 07:00:00";
+					$userFlyDateStartObj1 = DateTime::createFromFormat("m/d/Y H:i:s", $userFlyDateStartIncoming2, new DateTimeZone('UTC'));
+					$userFlyDateStart1 = $userFlyDateStartObj1->format("Y-m-d H:i:s");
+
+					// get outbound results
+					$outputTableOutbound = completeSearch($mysqli, $userOrigin1, $userDestination1,
+						$userFlyDateStart1, "priceWithOutboundPath");
+
+					// set up modular string pieces for building output echo here and with later return path if exists
+					$tableStringStart = 	"<div class='center-table'>
+
+<form style='width: 100%;' name='selectOutbound' class='navbar-form navbar-left searchResults' action='selected_results_processor.php' method='POST'>
+
+
+												<table id='outboundSelection' class='table table-striped table-responsive table-hover table-bordered'>\n
+												<thead>";
+					$tableStringMid = 	"<div><form style='width: 100%;' name='selectInbound' class='navbar-form navbar-left searchResults' action='selected_results_processor.php' method='POST'>
+												<table id='returnSelection' class='table table-striped table-responsive table-hover table-bordered' width='100%'>\n
+												<thead>";
+					$tableStringEnd = "</table>\n</form></div>";
+//in case need to put back in string:
+//
+//
+//
+
+					//<button type='submit' class='btn btn-default'>BOOK NOW!</button> --  </body> save for later fixme
+					echo $tableStringStart . $outputTableOutbound . $tableStringEnd;
+
+
+				}catch (Exception $e){
+					// $_SESSION[$savedName] = $savedToken;
+					echo "<div class='alert alert-danger' role='alert'>
+										".$e->getMessage()."
+								</div>";
+				}
+				?>
+
+			</div>
+			<div role="tabpanel" class="tab-pane fade in center" id="1DA">
+				<!--Insert Function Here-->
+			</div>
+			<div role="tabpanel" class="tab-pane fade in center" id="2DA">
+				<!--Insert Function Here-->
+			</div>
+		</div>
+
+	</div>
+</section>
+
+
+	<!--************************************RETURN TABS******************************************-->
+
+	<div class="clearfix"></div>
+<section class="center">
+	<br/>
+	<h2>SELECT RETURN FLIGHT</h2>
+	<hr>
+
+	<div id="inbound" class="tabContainer" role="tabpanel">
+
+		<!-- Nav tabs -->
+		<ul class="nav nav-tabs nav-justified" role="tablist">
+			<li role="presentation"><a href="#I2DB" aria-controls="I2DB" role="tab" data-toggle="tab">2DB</a></li>
+			<li role="presentation"><a href="#I1DB" aria-controls="I1DB" role="tab" data-toggle="tab">1DB</a></li>
+			<li role="presentation" class="active"><a href="#ID" aria-controls="ID" role="tab"
+																	data-toggle="tab">D</a></li>
+			<li role="presentation"><a href="#I1DA" aria-controls="I1DA" role="tab"
+												data-toggle="tab">1DA</a></li>
+			<li role="presentation"><a href="#I2DA" aria-controls="I2DA" role="tab"
+												data-toggle="tab">2DA</a></li>
+		</ul>
+
+		<!-- Tab panes -->
+		<div class="tab-content">
+			<div role="tabpanel" class="tab-pane fade in center" id="I2DB">
+				<!--Insert Function Here-->
+
+			</div>
+			<div role="tabpanel" class="tab-pane fade in center" id="I1DB">
+				<!--Insert Function Here-->
+			</div>
+			<div role="tabpanel" class="tab-pane fade in active center" id="ID">
+				<br/>
+
+				<?php
+
+
+				// execute return search and build results table within return tabs if round trip selected
+				try {
+
+					// execute return search flight with same process: clean inputs, adjust dates to needed format for return trip, switch origin and destination
+					$userOrigin2 = filter_input(INPUT_POST, "destination", FILTER_SANITIZE_STRING);
+					$userDestination2 = filter_input(INPUT_POST, "origin", FILTER_SANITIZE_STRING);
+
+					$userFlyDateStartIncoming3 = filter_input(INPUT_POST, "returnDate", FILTER_SANITIZE_STRING);
+					$userFlyDateStartIncoming4 = $userFlyDateStartIncoming3 . " 07:00:00";
+					$userFlyDateStartObj2 = DateTime::createFromFormat("m/d/Y H:i:s", $userFlyDateStartIncoming4, new DateTimeZone('UTC'));
+					$userFlyDateStart2 = $userFlyDateStartObj2->format("Y-m-d H:i:s");
+					//fixme check to see why is breaking when a second search is executed
+					// execute inbound flight search
+					$outputTableInbound = completeSearch($mysqli, $userOrigin2, $userDestination2,
+						$userFlyDateStart2, "priceWithReturnPath");
+
+					// build and echo output string return flight
+					echo $tableStringMid . $outputTableInbound . $tableStringEnd;
+
+
+
+				}catch (Exception $e){
+					// $_SESSION[$savedName] = $savedToken;
+					echo "<div class='alert alert-danger' role='alert'>
+										".$e->getMessage()."
+								</div>";
+				}
+				?>
+
+
+
+
+			</div>
+
+			<div role="tabpanel" class="tab-pane fade in center" id="I1DA">
+				<!--Insert Function Here-->
+			</div>
+			<div role="tabpanel" class="tab-pane fade in center" id="I2DA">
+				<!--Insert Function Here-->
+			</div>
+		</div>
+
+	</div>
+</section>
+
+<div class="clearfix"></div>
+<section class="center">
+	<div class="btn-group btn-group-lg" role="group" aria-label="...">
+		<!--<button type='submit' class='btn btn-primary'>BOOK NOW!</button> -->
+		<input type="button" Value="BOOK NOW!" onclick="submitForms()">
+	</div>
+	<br>
+	<br>
+	<br>
+	<br>
+	<br>
+
+</section>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<?php
+/**
+ * fixme doc bloc
+ * Created by PhpStorm.
+ * User: zwg2
+ * Date: 12/3/14
+ * Time: 10:12 AM
+ *
+ * this processor takes search inputs from user, executes outbound searches for the day of travel and both 1 and 2 days
+ * before and after the day of travel entered by user, and, if specified, a return trip search in the same way. Displays
+ * results to the user in sortable table form under tabs for each day of results.
+ */
+session_start();
+require("/var/www/html/przm.php");
+require("../class/flight.php");
+require("../../lib/csrf.php");
+$mysqli = MysqliConfiguration::getMysqli();
+
+
+require_once("../class/profile.php");
+if(isset($_SESSION['userId'])) {
+	$profile = Profile::getProfileByUserId($mysqli, $_SESSION['userId']);
+	$fullName = ucfirst($profile->__get('userFirstName')) . ' ' . ucfirst($profile->__get('userLastName'));
+	$userName = <<<EOF
+		<a><span
+			class="glyphicon glyphicon-user"></span> Welcome, $fullName  </a>
+
+EOF;
+	$status = <<< EOF
+			<a href="forms/signOut.php">Sign Out</a>
+
+EOF;
+
+}
+else{
+	$userName = "";
+	$status = "";
+}
+
+//	$savedName  = $_POST["csrfName"//];
+//	$savedToken = $_POST["csrfToken"];//
+//
+//
+//	if(verifyCsrf($_POST["csrfName"], $_POST["csrfToken"]) === false)// {
+//		throw(new RuntimeException("Make sure cookies are enabled.")//);
+//	}
+
+
+/**
+ * sets up all other needed variables that are same for outbound and return searches, then calls the method with all inputs
+ * @param 	resource $mysqli pointer to temp mySQL connection, by reference
+ * @param 	string $userOrigin with 3 letter origin city
+ * @param 	string $userDestination with 3 letter destination city
+ * @param 	string $userFlyDateStart of 7AM on user's chosen fly date
+ * @param 	string $returnOrNo of A or B for return trip or one-way.
+ * @return 	mixed $outputTable html table of search results
+ **/
+function completeSearch (&$mysqli, $userOrigin, $userDestination,
+								 $userFlyDateStart, $returnOrNo)
+{
+
+	// can make this a user input in future to pre-filter results to a user-given duration amount in hours.
+	$userFlyDateRange = 24;
+
+	// can make this a user input in future to pre-filter results to a user-given number of records.  If all records are needed, can use empty($thisArrayOfPaths[$i]) === false; in the for loop below instead.
+//$numberToShow = 15;
+//$i<$numberToShow
+
+	$numberOfPassengersRequested = filter_input(INPUT_POST, "numberOfPassengers", FILTER_SANITIZE_NUMBER_INT);
+	$minLayover = filter_input(INPUT_POST, "minLayover", FILTER_SANITIZE_NUMBER_INT);
+
+
+
+	// call method
+	$thisArrayOfPaths = Flight::getRoutesByUserInput($mysqli, $userOrigin, $userDestination,
+		$userFlyDateStart, $userFlyDateRange,
+		$numberOfPassengersRequested, $minLayover);
+
+	// set up head of table of search results
+	$outputTableHead = "<tr>
+											<th style='text-align:center'>Remaining<br/>Tickets</th>
+											<th style='text-align:center'>Flight #</th>
+											<th style='text-align:center'>Depart</th>
+											<th style='text-align:center'>Arrive</th>
+											<th style='text-align:center'>Stops</th>
+											<th style='text-align:center'>Layover</th>
+											<th style='text-align:center'>Travel Time</th>
+											<th style='text-align:center'>Price</th>
+											<th style='text-align:center'>SELECT</th>
+									</tr></thead>\n";
+
+	// set up variable for rows then fill in with results by looping through each path in the array of paths
+	$outputTableRows = "";
+	for($i = 0; empty($thisArrayOfPaths[$i]) === false; $i++) {
+
+		//get index for last flight
+		$indexOfLastFlightInPath = count($thisArrayOfPaths[$i]) - 3;
+
+		// origin timezone conversions here
+		if($userOrigin === "ABQ" || $userOrigin === "DEN") {
+			$originTimeZoneString = "PT";
+			$departureFlight1 = $thisArrayOfPaths[$i][0]->getDepartureDateTime()->setTimezone(new
+																			DateTimeZone("America/Denver"))->format("H:i");
+		} else if($userOrigin === "SEA" || $userOrigin === "LAX") {
+			$originTimeZoneString = "MT";
+			$departureFlight1 = $thisArrayOfPaths[$i][0]->getDepartureDateTime()->setTimezone(new
+																			DateTimeZone("America/Los_Angeles"))->format("H:i");
+		} else if($userOrigin === "DFW" || $userOrigin === "ORD" || $userOrigin === "MDW") {
+			$originTimeZoneString = "CT";
+			$departureFlight1 = $thisArrayOfPaths[$i][0]->getDepartureDateTime()->setTimezone(new DateTimeZone("America/Chicago"))->format("H:i");
+		} // else origin is ET
+		else {
+			$originTimeZoneString = "ET";
+			$departureFlight1 = $thisArrayOfPaths[$i][0]->getDepartureDateTime()->setTimezone(new DateTimeZone("America/New_York"))->format("H:i");
+		}
+
+
+		// destination timezone conversions here
+		if($userDestination === "SEA" || $userDestination === "LAX") {
+			$destinationTimeZoneString = "PT";
+			$arrivalFlightLast = $thisArrayOfPaths[$i][$indexOfLastFlightInPath]->getArrivalDateTime()->setTimezone(new DateTimeZone("America/Los_Angeles"))->format("H:i");
+		} else if($userDestination === "ABQ" || $userDestination === "DEN") {
+			$destinationTimeZoneString = "MT";
+			$arrivalFlightLast = $thisArrayOfPaths[$i][$indexOfLastFlightInPath]->getArrivalDateTime()->setTimezone(new DateTimeZone("America/Denver"))->format("H:i");
+		} else if($userDestination === "DFW" || $userDestination === "ORD" || $userDestination === "MDW") {
+			$destinationTimeZoneString = "CT";
+			$arrivalFlightLast = $thisArrayOfPaths[$i][$indexOfLastFlightInPath]->getArrivalDateTime()->setTimezone(new DateTimeZone("America/Chicago"))->format("H:i");
+		} // else destination is ET
+		else {
+			$arrivalFlightLast = "ET";
+			$arrivalFlightLast = $thisArrayOfPaths[$i][$indexOfLastFlightInPath]->getArrivalDateTime()->setTimezone(new DateTimeZone("America/New_York"))->format("H:i");
+		}
+
+//		echo "<p>Destination TIME FOR PATH after timezone: ". $i ." </p>";
+//		var_dump($thisArrayOfPaths[$i][$indexOfLastFlightInPath]->getArrivalDateTime());
+
+		// get total price from results
+		$totalPriceFloat = $thisArrayOfPaths[$i][$indexOfLastFlightInPath+2];
+		$totalPrice = "$" . money_format("%n",$totalPriceFloat);
+
+		// set up arrays for flight number and flightIDs then loop through results to build
+		$flightNumberArray = array();
+		$flightIdArray = array();
+
+		// but first add price to beginning of flightID array for use later in the process of purchasing a ticket
+		$flightIdArray[0] = $totalPriceFloat;
+		$flightIdArray[1] = $numberOfPassengersRequested;
+
+		// and second set up counter
+		$j = 0;
+
+		// and third set up placeholder for total tickets on each plane
+		$totalTicketsLeft = 10000;
+
+		do {
+			$flightNumberArray [$j]= $thisArrayOfPaths[$i][$j]->getFlightNumber();
+			$flightIdArray [$j+2]= $thisArrayOfPaths[$i][$j]->getFlightId();
+
+			// use loop to also capture the lowest TotalSeatsOnPlane of all flights in the Path
+			if($totalTicketsLeft > $thisArrayOfPaths[$i][$j]->getTotalSeatsOnPlane()) {
+				$totalTicketsLeft = $thisArrayOfPaths[$i][$j]->getTotalSeatsOnPlane();
+			}
+			$j++;
+		} while(empty($thisArrayOfPaths[$i][$j + 2]) === false);
+
+		// turn arrays to string with commas
+		$flightNumber = implode(", ", $flightNumberArray);
+		$priceWithFlightIds = implode(", ", $flightIdArray);
+
+//		echo "120 final flightNumber string";
+//		var_dump($flightNumber);
+
+
+//		todo old code delete:
+//		} else {
+//			$flightNumber = $thisArrayOfPaths[$i][0]->getFlightNumber();
+//		}
+//		echo "120 flight#Array";
+//		var_dump(count($flightNumberArray));
+
+//		if(count($flightNumberArray) === 1) {
+//			$flightNumber = $flightNumberArray[0];
+//		} else if(count($flightNumberArray) > 1) {
+			// turn array to string
+//		} else throw (new UnexpectedValueException ("Could not find a flight number"));
+
+
+		// index of last flight also = number of stops to show user
+		if($indexOfLastFlightInPath === 0) {
+			$numberOfStops = "Nonstop";
+		} else {
+			$numberOfStops = $indexOfLastFlightInPath;
+		}
+
+		// get total duration from results array and change it to a string
+		$totalDurationInterval = $thisArrayOfPaths[$i][$indexOfLastFlightInPath + 1];
+//		echo "<p>121 PATH index then DURATION </p>";
+//		var_dump($indexOfLastFlightInPath + 1);
+//		var_dump($totalDurationInterval);
+
+		$travelTime = $totalDurationInterval->format("%H:%I");
+
+		// set up array for layover then loop through results to calc
+		$layoverArray = array();
+		for($k = 0; empty($thisArrayOfPaths[$i][$k + 3]) === false; $k++) {
+			$layoverInterval = $thisArrayOfPaths[$i][$k]->getArrivalDateTime()->
+										diff($thisArrayOfPaths[$i][$k + 1]->getDepartureDateTime());
+//
+//			echo "<p>161 PATH LAYOVER </p>";
+//			var_dump($layoverInterval);
+
+//			$minutes = $layoverInterval->days * 24 * 60;
+//			$minutes += $layoverInterval->h * 60;
+//			$minutes += $layoverInterval->i;
+
+			$layoverArray[$k] = $layoverInterval->format("%H:%I");
+
+//				intval($minutes);
+		}
+
+		// turn layover to string of all layovers in route
+		if($indexOfLastFlightInPath === 0) {
+			$layoverString = "-";
+		} else {
+			$layoverString = implode(", ", $layoverArray);
+		}
+
+		// build outputs into table rows.  Give each select a different value depending on a) outbound or inbound and b) within either, number for path in loop.
+		$outputTableRows = $outputTableRows . "<tr>" .
+			"<td>" . $totalTicketsLeft . "</td>" .
+			"<td>" . $flightNumber . "</td>" .
+			"<td>" . $departureFlight1 . "</td>" .
+			"<td>" . $arrivalFlightLast . "</td>" .
+			"<td text-align: center>" . $numberOfStops . "</td>" .
+			"<td>" . $layoverString . "</td>" .
+			"<td>" . $travelTime . "</td>" .
+			"<td>" . $totalPrice . "</td>" .
+			"<td>
+					<div class='btn-group'>
+						<label class='btn btn-primary active'>
+							<input type='radio' name='" . $returnOrNo . "' id='selectFlight" . $returnOrNo . $i . "' autocomplete='off' value='" . $priceWithFlightIds . "'>
+						</label>
+					</div>
+			</td>" .
+			"</tr>\n";
+	}
+	$outputTable = $outputTableHead . "<tbody>" . $outputTableRows . "</tbody>\n";
+	return $outputTable;
+}
+
+?>
+
+<?php
+
+// set up all post variables that repeat in each tab, starting with outbound tabs and followed by inbound
+try {
+
+	//test for csrf at the top of the page fixme
+
+	// establish variable that defines whether or not to run the return or inbound search in JS
+	$hiddenRadio = $_POST['roundTripOrOneWay'];
+
+	// set up modular string pieces for building output echo here and with later return path if exists
+	$tableStringStart = 	"<div class='center-table'>
+									<table id='outboundSelection' class='table table-striped table-responsive table-hover table-bordered outbound-results'>\n
+										<thead>";
+	$tableStringMid = 	"<div>
+									<table id='returnSelection' class='table table-striped table-responsive table-hover table-bordered inbound-results' width='100%'>\n
+										<thead>";
+	$tableStringEnd = "</table>\n</div>";
+
+
+	// clean inputs, adjust dates to needed format for OUTBOUND path***************************************************
+	$originOutbound = filter_input(INPUT_POST, "origin", FILTER_SANITIZE_STRING);
+	$destinationOutbound = filter_input(INPUT_POST, "destination", FILTER_SANITIZE_STRING);
+
+	$userFlyDateStartIncoming1 = filter_input(INPUT_POST, "departDate", FILTER_SANITIZE_STRING);
+	$userFlyDateStartIncoming2 = $userFlyDateStartIncoming1 . " 07:00:00";
+	$userFlyDateStartObj1 = DateTimeImmutable::createFromFormat("m/d/Y H:i:s", $userFlyDateStartIncoming2, new DateTimeZone('UTC'));
+
+
+	// tab 1 date math off main date for heading and input format
+	$twoDayInterval = DateInterval::createFromDateString("2 days");
+	$userFlyDateStartLess2obj = $userFlyDateStartObj1->sub($twoDayInterval);
+	$tabDisplayLess2Days = $userFlyDateStartLess2obj->format("m-d-Y");
+	$userFlyDateStartLess2 = $userFlyDateStartLess2obj->format("Y-m-d H:i:s");
+
+	// tab 2 date math off main date for heading and input format
+	$oneDayInterval = DateInterval::createFromDateString("1 day");
+	$userFlyDateStartLess1obj = $userFlyDateStartObj1->sub($oneDayInterval);
+	$tabDisplayLess1Day = $userFlyDateStartLess1obj->format("m-d-Y");
+	$userFlyDateStartLess1 = $userFlyDateStartLess1obj->format("Y-m-d H:i:s");
+
+	// tab 3 or the MAIN tab
+	$tabDisplayMainDay = $userFlyDateStartObj1->format("m-d-Y");
+	$userFlyDateStart1 = $userFlyDateStartObj1->format("Y-m-d H:i:s");
+
+	// tab 4 date math off main date for heading and input format
+	$userFlyDateStartAdd1obj = $userFlyDateStartObj1->add($oneDayInterval);
+	$tabDisplayAdd1Day = $userFlyDateStartAdd1obj->format("m-d-Y");
+	$userFlyDateStartAdd1 = $userFlyDateStartAdd1obj->format("Y-m-d H:i:s");
+
+	// tab 5 date math off main date for heading and input format
+	$userFlyDateStartAdd2obj = $userFlyDateStartObj1->add($twoDayInterval);
+	$tabDisplayAdd2Days = $userFlyDateStartAdd2obj->format("m-d-Y");
+	$userFlyDateStartAdd2 = $userFlyDateStartAdd2obj->format("Y-m-d H:i:s");
+
+
+
+
+
+	// if return trip, set up return trip variables
+	if($_POST ["roundTripOrOneWay"] === "No") {
+		// clean INBOUND inputs, adjust dates format, switch origin and destination***************************************************
+		$originInbound = filter_input(INPUT_POST, "destination", FILTER_SANITIZE_STRING);
+		$destinationInbound = filter_input(INPUT_POST, "origin", FILTER_SANITIZE_STRING);
+
+		$userFlyDateStartIncoming3 = filter_input(INPUT_POST, "returnDate", FILTER_SANITIZE_STRING);
+		$userFlyDateStartIncoming4 = $userFlyDateStartIncoming3 . " 07:00:00";
+		$userFlyDateInboundObj = DateTimeImmutable::createFromFormat("m/d/Y H:i:s", $userFlyDateStartIncoming4, new DateTimeZone('UTC'));
+
+
+		// tab 1 date math off main date for heading and input format
+		$userFlyDateInboundLess2obj = $userFlyDateInboundObj->sub($twoDayInterval);
+		$tabDisplayInboundLess2Days = $userFlyDateInboundLess2obj->format("m-d-Y");
+		$userFlyDateInboundLess2 = $userFlyDateInboundLess2obj->format("Y-m-d H:i:s");
+
+		// tab 2 date math off main date for heading and input format
+		$userFlyDateInboundLess1obj = $userFlyDateInboundObj->sub($oneDayInterval);
+		$tabDisplayInboundLess1Day = $userFlyDateInboundLess1obj->format("m-d-Y");
+		$userFlyDateInboundLess1 = $userFlyDateInboundLess1obj->format("Y-m-d H:i:s");
+
+		// tab 3 or the MAIN tab
+		$tabDisplayInboundMainDay = $userFlyDateInboundObj->format("m-d-Y");
+		$userFlyDateInbound = $userFlyDateInboundObj->format("Y-m-d H:i:s");
+
+		// tab 4 date math off main date for heading and input format
+		$userFlyDateInboundAdd1obj = $userFlyDateInboundObj->add($oneDayInterval);
+		$tabDisplayInboundAdd1Day = $userFlyDateInboundAdd1obj->format("m-d-Y");
+		$userFlyDateInboundAdd1 = $userFlyDateInboundAdd1obj->format("Y-m-d H:i:s");
+
+		// tab 5 date math off main date for heading and input format
+		$userFlyDateInboundAdd2obj = $userFlyDateInboundObj->add($twoDayInterval);
+		$tabDisplayInboundAdd2Days = $userFlyDateInboundAdd2obj->format("m-d-Y");
+		$userFlyDateInboundAdd2 = $userFlyDateInboundAdd2obj->format("Y-m-d H:i:s");
+	}
+
+
+	//in case need to put back in string:
+	//<form style='width: 100%;' name='selectInbound' class='navbar-form navbar-left searchResults' action='selected_results_processor.php' method='POST'>
+	//</form>
+	//
+
+}catch (Exception $e){
+	// $_SESSION[$savedName] = $savedToken;
+	echo "<div class='alert alert-danger' role='alert'>
+												".$e->getMessage()."
+										</div>";
+}
+
+?>
+<!DOCTYPE html>
+<html>
+<head lang="en">
+	<meta charset="UTF-8">
+	<title>DistilAir Airlines</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link type="text/css" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.1/css/bootstrap.min.css" rel="stylesheet" />
+<link type="text/css" href="../../css/search_results.css" rel="stylesheet" />
+
+<script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+<script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/jquery.form/3.51/jquery.form.min.js"></script>
+<script type="text/javascript" src="//ajax.aspnetcdn.com/ajax/jquery.validate/1.12.0/jquery.validate.min.js"></script>
+<script type="text/javascript" src="//ajax.aspnetcdn.com/ajax/jquery.validate/1.12.0/additional-methods.min.js"></script>
+<script type="text/javascript" src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.1/js/bootstrap.min.js"></script>
+
+<script type="text/javascript" src="//cdn.datatables.net/1.10.4/js/jquery.dataTables.min.js"></script>
+<script type="text/javascript" src="//cdn.datatables.net/plug-ins/9dcbecd42ad/integration/bootstrap/3/dataTables.bootstrap.js"></script>
+<script type="text/javascript" src="../../js/search_results.js"></script>
+<style>
+	.tab-container{
+		/*style tabs here*/
+	}
+</style>
+</head>
+<body>
+<header>
+<nav class="navbar navbar-default" role="navigation">
+	<div class="container-fluid">
+		<!-- Brand and toggle get grouped for better mobile display -->
+		<div class="navbar-header">
+			<button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
+				<span class="sr-only">Toggle navigation</span>
+				<span class="icon-bar"></span>
+				<span class="icon-bar"></span>
+				<span class="icon-bar"></span>
+			</button>
+			<a class="navbar-brand" href="clearSession.php"><span class="glyphicon glyphicon-cloud"
+																			  aria-hidden="true"></span> DistilAir Airlines</a>
+		</div>
+
+		<!-- Collect the nav links, forms, and other content for toggling -->
+		<div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
+			<ul class="nav navbar-nav">
+				<li></li>
+			</ul>
+
+			<ul class="nav navbar-nav navbar-right">
+
+			<li><a href="#"></a></li>
+			</ul>
+		</div><!-- /.navbar-collapse -->
+	</div><!-- /.container-fluid -->
+	</nav>
+</header>
+<body>
+	<input type="hidden" name="hiddenRadio" value="<?php echo $hiddenRadio;?>">
+	<!--************************************OUTBOUND TABS******************************************-->
+	<form name="selectFlights" class='navbar-form navbar-left searchResults' action='selected_results_processor.php' method='POST'>
+
+		<section class="center">
+			<br/>
+			<h2>SELECT DEPARTURE FLIGHT</h2>
+			<hr>
+
+			<div id="outbound" class="tabContainer" role="tabpanel">
+
+				<!-- Nav tabs -->
+				<div class="container-fluid">
+					<ul class="nav nav-tabs nav-justified" role="tablist">
+						<li role="presentation"><a href="#2DB" aria-controls="2DB" role="tab" data-toggle="tab">
+								<?php echo $tabDisplayLess2Days;?></a></li>
+
+						<li role="presentation"><a href="#1DB" aria-controls="1DB" role="tab" data-toggle="tab">
+								<?php echo $tabDisplayLess1Day;?></a></li>
+
+						<li role="presentation" class="active"><a href="#D" aria-controls="D" role="tab" data-toggle="tab">
+								<?php echo $tabDisplayMainDay;?></a></li>
+
+						<li role="presentation"><a href="#1DA" aria-controls="1DA" role="tab" data-toggle="tab">
+								<?php echo $tabDisplayAdd1Day;?></a></li>
+						<li role="presentation"><a href="#2DA" aria-controls="2DA" role="tab" data-toggle="tab">
+								<?php echo $tabDisplayAdd2Days;?></a></li>
+					</ul>
+				</div>
+
+				<!-- Tab panes -->
+				<div class="tab-content">
+					<div role="tabpanel" class="tab-pane fade in center" id="2DB">
+						<br/>
+						<?php
+							// execute outbound search and build results table within outbound tabs
+							try {
+
+
+								echo $tableStringStart . $outputTableOutboundLess2 . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+													".$e->getMessage()."
+											</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="1DB">
+						<br/>
+						<?php
+							// execute outbound search and build results table within outbound tabs
+							try {
+								// get outbound results
+								$outputTableOutboundLess1 = completeSearch($mysqli, $originOutbound, $destinationOutbound,
+									$userFlyDateStartLess1, "priceWithOutboundPath");
+
+								echo $tableStringStart . $outputTableOutboundLess1 . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+													".$e->getMessage()."
+											</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in active center" id="D">
+						<br/>
+						<?php
+							// execute outbound search and build results table within outbound tabs
+							try {
+								$outputTableOutbound = completeSearch($mysqli, $originOutbound, $destinationOutbound,
+									$userFlyDateStart1, "priceWithOutboundPath");
+
+								echo $tableStringStart . $outputTableOutbound . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+													".$e->getMessage()."
+											</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="1DA">
+						<br/>
+						<?php
+							// execute outbound search and build results table within outbound tabs
+							try {
+								// get outbound results
+								$outputTableOutboundAdd1 = completeSearch($mysqli, $originOutbound, $destinationOutbound,
+									$userFlyDateStartAdd1, "priceWithOutboundPath");
+
+								echo $tableStringStart . $outputTableOutboundAdd1 . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+														".$e->getMessage()."
+												</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="2DA">
+						<br/>
+						<?php
+							// execute outbound search and build results table within outbound tabs
+							try {
+								// get outbound results
+								$outputTableOutboundAdd2 = completeSearch($mysqli, $originOutbound, $destinationOutbound,
+									$userFlyDateStartAdd2, "priceWithOutboundPath");
+
+								echo $tableStringStart . $outputTableOutboundAdd2 . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+															".$e->getMessage()."
+													</div>";
+							}
+						?>
+					</div>
+				</div>
+			</div>
+		</section>
+
+
+			<!--************************************RETURN TABS******************************************-->
+
+		<div class="clearfix"></div>
+		<section class="center" id="returnTabs">
+			<br/>
+			<h2>SELECT RETURN FLIGHT</h2>
+			<hr>
+
+			<div id="inbound" class="tabContainer" role="tabpanel">
+				<!-- Nav tabs -->
+				<ul class="nav nav-tabs nav-justified" role="tablist">
+					<li role="presentation"><a href="#I2DB" aria-controls="I2DB" role="tab" data-toggle="tab">
+							<?php echo $tabDisplayInboundLess2Days;?></a></li>
+
+					<li role="presentation"><a href="#I1DB" aria-controls="I1DB" role="tab" data-toggle="tab">
+							<?php echo $tabDisplayInboundLess1Day;?></a></li>
+
+					<li role="presentation" class="active"><a href="#ID" aria-controls="ID" role="tab" data-toggle="tab">
+							<?php echo $tabDisplayInboundMainDay;?></a></li>
+
+					<li role="presentation"><a href="#I1DA" aria-controls="I1DA" role="tab" data-toggle="tab">
+							<?php echo $tabDisplayInboundAdd1Day;?></a></li>
+
+					<li role="presentation"><a href="#I2DA" aria-controls="I2DA" role="tab" data-toggle="tab">
+							<?php echo $tabDisplayInboundAdd2Days;?></a></li>
+				</ul>
+
+				<!-- Tab panes -->
+				<div class="tab-content">
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="I2DB">
+						<br/>
+						<?php
+							// execute return search and build results table within return tabs if round trip selected
+							try {
+								if($_POST ["roundTripOrOneWay"] === "No") {
+
+									// execute inbound flight search
+									$outputTableInboundLess2 = completeSearch($mysqli, $originInbound, $destinationInbound,
+										$userFlyDateInboundLess2, "priceWithReturnPath");
+
+									// build and echo output string return flight
+									echo $tableStringMid . $outputTableInboundLess2 . $tableStringEnd;
+								}
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+														".$e->getMessage()."
+												</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="I1DB">
+						<br/>
+						<?php
+							// execute return search and build results table within return tabs if round trip selected
+							try {
+								if($_POST ["roundTripOrOneWay"] === "No") {
+									// execute inbound flight search
+									$outputTableInboundLess1 = completeSearch($mysqli, $originInbound, $destinationInbound,
+										$userFlyDateInboundLess1, "priceWithReturnPath");
+
+									// build and echo output string return flight
+									echo $tableStringMid . $outputTableInboundLess1 . $tableStringEnd;
+								}
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+															".$e->getMessage()."
+													</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in active center" id="ID">
+						<br/>
+						<?php
+							// execute return search and build results table within return tabs if round trip selected
+							try {
+								if($_POST ["roundTripOrOneWay"] === "No") {
+									// execute inbound flight search
+
+									$outputTableInbound = completeSearch($mysqli, $originInbound, $destinationInbound,
+										$userFlyDateInbound, "priceWithReturnPath");
+
+									// build and echo output string return flight
+									echo $tableStringMid . $outputTableInbound . $tableStringEnd;
+								}
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+													".$e->getMessage()."
+											</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="I1DA">
+						<br/>
+						<?php
+							// execute return search and build results table within return tabs if round trip selected
+							try {
+								// execute inbound flight search
+								$outputTableInboundAdd1 = completeSearch($mysqli, $originInbound, $destinationInbound,
+									$userFlyDateInboundAdd1, "priceWithReturnPath");
+
+								// build and echo output string return flight
+								echo $tableStringMid . $outputTableInboundAdd1 . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+															".$e->getMessage()."
+													</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="I2DA">
+						<br/>
+						<?php
+							// execute return search and build results table within return tabs if round trip selected
+							try {
+								// execute inbound flight search
+								$outputTableInboundAdd2 = completeSearch($mysqli, $originInbound, $destinationInbound,
+									$userFlyDateInboundAdd2, "priceWithReturnPath");
+
+								// build and echo output string return flight
+								echo $tableStringMid . $outputTableInboundAdd2 . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+															".$e->getMessage()."
+													</div>";
+							}
+						?>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<div class="clearfix"></div>
+		<section class="center">
+			<br/>
+			<div class="btn-group btn-group-lg" role="group" aria-label="...">
+				<button type='submit' class='btn btn-primary'>BOOK NOW!</button>
+			</div>
+			<br/>
+			<br/>
+			<br/>
+			<br/>
+
+
+		</section>
+	</form>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		<section class="center">
+			<br/>
+			<h2>SELECT RETURN FLIGHT</h2>
+			<hr>
+
+			<div id="inbound" class="tabContainer" role="tabpanel">
+				<!-- Nav tabs -->
+				<ul class="nav nav-tabs nav-justified" role="tablist">
+					<li role="presentation"><a href="#I2DB" aria-controls="I2DB" role="tab" data-toggle="tab">
+							<?php echo $tabDisplayInboundLess2Days;?></a></li>
+
+					<li role="presentation"><a href="#I1DB" aria-controls="I1DB" role="tab" data-toggle="tab">
+							<?php echo $tabDisplayInboundLess1Day;?></a></li>
+
+					<li role="presentation" class="active"><a href="#ID" aria-controls="ID" role="tab" data-toggle="tab">
+							<?php echo $tabDisplayInboundMainDay;?></a></li>
+
+					<li role="presentation"><a href="#I1DA" aria-controls="I1DA" role="tab" data-toggle="tab">
+							<?php echo $tabDisplayInboundAdd1Day;?></a></li>
+
+					<li role="presentation"><a href="#I2DA" aria-controls="I2DA" role="tab" data-toggle="tab">
+							<?php echo $tabDisplayInboundAdd2Days;?></a></li>
+				</ul>
+
+				<!-- Tab panes -->
+				<div class="tab-content">
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="I2DB">
+						<br/>
+						<?php
+							// execute return search and build results table within return tabs if round trip selected
+							try {
+								// execute inbound flight search
+								$outputTableInboundLess2 = completeSearch($mysqli, $originInbound, $destinationInbound,
+									$userFlyDateInboundLess2, "priceWithReturnPath");
+
+								// build and echo output string return flight
+								echo $tableStringMid . $outputTableInboundLess2 . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+														".$e->getMessage()."
+												</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="I1DB">
+						<br/>
+						<?php
+							// execute return search and build results table within return tabs if round trip selected
+							try {
+								// execute inbound flight search
+								$outputTableInboundLess1 = completeSearch($mysqli, $originInbound, $destinationInbound,
+									$userFlyDateInboundLess1, "priceWithReturnPath");
+
+								// build and echo output string return flight
+								echo $tableStringMid . $outputTableInboundLess1 . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+															".$e->getMessage()."
+													</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in active center" id="ID">
+						<br/>
+						<?php
+							// execute return search and build results table within return tabs if round trip selected
+							try {
+								// execute inbound flight search
+								$outputTableInbound = completeSearch($mysqli, $originInbound, $destinationInbound,
+									$userFlyDateInbound, "priceWithReturnPath");
+
+								// build and echo output string return flight
+								echo $tableStringMid . $outputTableInbound . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+													".$e->getMessage()."
+											</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="I1DA">
+						<br/>
+						<?php
+							// execute return search and build results table within return tabs if round trip selected
+							try {
+								// execute inbound flight search
+								$outputTableInboundAdd1 = completeSearch($mysqli, $originInbound, $destinationInbound,
+									$userFlyDateInboundAdd1, "priceWithReturnPath");
+
+								// build and echo output string return flight
+								echo $tableStringMid . $outputTableInboundAdd1 . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+															".$e->getMessage()."
+													</div>";
+							}
+						?>
+					</div>
+
+
+					<div role="tabpanel" class="tab-pane fade in center" id="I2DA">
+						<br/>
+						<?php
+							// execute return search and build results table within return tabs if round trip selected
+							try {
+								// execute inbound flight search
+								$outputTableInboundAdd2 = completeSearch($mysqli, $originInbound, $destinationInbound,
+									$userFlyDateInboundAdd2, "priceWithReturnPath");
+
+								// build and echo output string return flight
+								echo $tableStringMid . $outputTableInboundAdd2 . $tableStringEnd;
+
+							}catch (Exception $e){
+								// $_SESSION[$savedName] = $savedToken;
+								echo "<div class='alert alert-danger' role='alert'>
+															".$e->getMessage()."
+													</div>";
+							}
+						?>
+					</div>
+				</div>
+			</div>
+		</section>
+
+
+
+
+
+
+
+
+
+

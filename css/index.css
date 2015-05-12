@@ -1,0 +1,64 @@
+.form-group{
+	width: 25em;
+	height: 50em;
+	background-color: lightblue;
+	margin-top: .5em;
+}
+.form-group p{
+	margin-left: 2em;
+}
+img {
+	height: 50em;
+	width: 50em;
+	margin-top: 1em;
+	margin-right: 5em;
+}
+.styleBtn{
+	margin: 1em 0;
+	margin-left: 3.3em;
+}
+#search{
+	margin-left: 5em;
+	margin-top: .4em;
+}
+
+#searchResults{
+	list-style: none;
+}
+#accountLinksDiv{
+	margin-left: 5em;
+	height: 60em;
+	width: 50em;
+	padding: 2em;
+}
+
+#accountLinksList{
+	list-style: none;
+	padding: 2em;
+	font-size: 2em;
+}
+#accountLinksList li{
+	padding: .3em;
+}
+#checkInLinksDiv{
+	margin-left: 5em;
+	height: 30em;
+	width: 50em;
+	padding: 2em;
+}
+
+#checkInLinksList{
+	list-style: none;
+	font-size: 2em;
+	padding: 2em;
+}
+
+#checkInLinksList li{
+	padding: .3em;
+}
+
+#multiple-datasets .league-name {
+	margin: 0 20px 5px 20px;
+	padding: 3px 0;
+	border-bottom: 1px solid #ccc;
+}
